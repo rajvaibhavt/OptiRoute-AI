@@ -8,15 +8,29 @@ interface RouteLocation {
   y: number
 }
 
+interface RouteOptimizationRequest {
+  warehouse: RouteLocation
+  locations: RouteLocation[]
+}
+
+interface RouteOptimizationResult {
+  distance: number
+  route: string[]
+  geometry: [number, number][]
+}
 
 const api = {
-  optimizeRoute: (locations: RouteLocation[]) =>
-    ipcRenderer.invoke('route:optimize', locations),
+  optimizeRoute: (
+    request: RouteOptimizationRequest
+  ): Promise<RouteOptimizationResult> =>
+    ipcRenderer.invoke(
+      'route:optimize',
+      request
+    ) as Promise<RouteOptimizationResult>,
 
   geocodeAddress: (query: string) =>
     ipcRenderer.invoke('geocode:address', query)
 }
-
 
 if (process.contextIsolated) {
   try {
