@@ -20,12 +20,10 @@ private:
     double y;
 
 public:
-    // Constructor
     Location(string locationName, double xCoordinate, double yCoordinate)
         : name(locationName), x(xCoordinate), y(yCoordinate) {
     }
 
-    // Getter methods
     string getName() const {
         return name;
     }
@@ -55,84 +53,109 @@ double calculateDistance(const Location& a, const Location& b) {
 // ===============================
 
 int main() {
+    // Step 1: Read number of delivery locations
 
-    // Step 1: Create delivery locations
+    int deliveryCount;
+
+    if (!(cin >> deliveryCount)) {
+        cerr << "Error: Invalid delivery count." << endl;
+        return 1;
+    }
+
+    // Limit locations because Bitmask DP uses exponential memory.
+    // Maximum 15 deliveries for this initial version.
+
+    if (deliveryCount < 0 || deliveryCount > 15) {
+        cerr << "Error: Delivery count must be between 0 and 15."
+             << endl;
+        return 1;
+    }
+
+    cin.ignore(numeric_limits<streamsize>::max(), '\n');
+
+    // Step 2: Create locations
+    // Warehouse is always location index 0.
 
     vector<Location> locations;
 
-    locations.push_back(Location("Warehouse", 0, 0));
-    locations.push_back(Location("Delivery A", 3, 4));
-    locations.push_back(Location("Delivery B", 6, 0));
-    locations.push_back(Location("Delivery C", 6, 8));
+    locations.push_back(Location("Warehouse", 0.0, 0.0));
 
-    int n = locations.size();
+    for (int i = 0; i < deliveryCount; i++) {
+        string name;
+        double x;
+        double y;
 
-    // Step 2: Create distance matrix
+        // Read location name
 
-    vector<vector<double> > distanceMatrix(
-        n, vector<double>(n, 0.0)
+        getline(cin, name);
+
+        if (name.empty()) {
+            cerr << "Error: Location name cannot be empty." << endl;
+            return 1;
+        }
+
+        // Read coordinates
+
+        if (!(cin >> x >> y)) {
+            cerr << "Error: Invalid coordinates." << endl;
+            return 1;
+        }
+
+        if (!isfinite(x) || !isfinite(y)) {
+            cerr << "Error: Coordinates must be finite numbers."
+                 << endl;
+            return 1;
+        }
+
+        cin.ignore(numeric_limits<streamsize>::max(), '\n');
+
+        locations.push_back(Location(name, x, y));
+    }
+
+    int n = static_cast<int>(locations.size());
+
+    // Step 3: Handle zero delivery locations
+
+    if (deliveryCount == 0) {
+        cout << "DISTANCE 0\n";
+        cout << "ROUTE 0\n";
+        return 0;
+    }
+
+    // Step 4: Create distance matrix
+
+    vector<vector<double>> distanceMatrix(
+        n,
+        vector<double>(n, 0.0)
     );
 
     for (int i = 0; i < n; i++) {
-
         for (int j = 0; j < n; j++) {
-
             distanceMatrix[i][j] =
                 calculateDistance(locations[i], locations[j]);
         }
     }
 
-    // Step 3: Display distance matrix
+    // Step 5: Bitmask Dynamic Programming
 
-    cout << "Distance Matrix\n\n";
-
-    cout << setw(15) << " ";
-
-    for (int j = 0; j < n; j++) {
-        cout << setw(15) << locations[j].getName();
-    }
-
-    cout << "\n";
-
-    for (int i = 0; i < n; i++) {
-
-        cout << setw(15) << locations[i].getName();
-
-        for (int j = 0; j < n; j++) {
-            cout << setw(15) << distanceMatrix[i][j];
-        }
-
-        cout << "\n";
-    }
-
-    // Step 4: Dynamic Programming - Bitmask DP
-
-    // Number of delivery locations excluding warehouse
-    int deliveryCount = n - 1;
-
-    // Total possible subsets of deliveries
     int stateCount = 1 << deliveryCount;
 
-    // Infinity value
     double INF = numeric_limits<double>::infinity();
 
-    // DP table
-    vector<vector<double> > dp(
+    vector<vector<double>> dp(
         stateCount,
         vector<double>(deliveryCount, INF)
     );
 
-    // Parent table for route reconstruction
-    vector<vector<int> > parent(
+    vector<vector<int>> parent(
         stateCount,
         vector<int>(deliveryCount, -1)
     );
 
-    // Step 5: Base cases
+    // Base cases:
     // Warehouse -> individual delivery
 
     for (int j = 0; j < deliveryCount; j++) {
-
         int mask = 1 << j;
 
         dp[mask][j] = distanceMatrix[0][j + 1];
@@ -141,33 +164,25 @@ int main() {
     // Step 6: DP transitions
 
     for (int mask = 1; mask < stateCount; mask++) {
-
         for (int last = 0; last < deliveryCount; last++) {
 
-            // Check whether last delivery is visited
             if ((mask & (1 << last)) == 0) {
                 continue;
             }
 
-            // Try every unvisited delivery
             for (int next = 0; next < deliveryCount; next++) {
 
-                // Skip already visited delivery
                 if (mask & (1 << next)) {
                     continue;
                 }
 
-                // Add next delivery to visited set
                 int newMask = mask | (1 << next);
 
-                // Calculate new route distance
                 double newDistance =
                     dp[mask][last] +
                     distanceMatrix[last + 1][next + 1];
 
-                // Update if this route is better
                 if (newDistance < dp[newMask][next]) {
-
                     dp[newMask][next] = newDistance;
 
                     parent[newMask][next] = last;
@@ -186,13 +201,11 @@ int main() {
     int bestLast = -1;
 
     for (int last = 0; last < deliveryCount; last++) {
-
         double totalDistance =
             dp[fullMask][last] +
             distanceMatrix[last + 1][0];
 
         if (totalDistance < minimumDistance) {
-
             minimumDistance = totalDistance;
 
             bestLast = last;
@@ -204,43 +217,35 @@ int main() {
     vector<int> route;
 
     int mask = fullMask;
-
     int last = bestLast;
 
     while (last != -1) {
-
-        // Store location index
         route.push_back(last + 1);
 
-        // Find previous delivery
         int previous = parent[mask][last];
 
-        // Remove current delivery from mask
         mask = mask ^ (1 << last);
 
         last = previous;
     }
 
-    // Reverse route to get correct order
     reverse(route.begin(), route.end());
 
-    // Step 9: Display optimized route
+    // Step 9: Output machine-readable result
+    // Location index 0 = Warehouse
+    // Delivery locations = 1, 2, 3, ...
 
-    cout << "\nOptimized Delivery Route\n\n";
+    cout << fixed << setprecision(6);
 
-    cout << "Warehouse";
+    cout << "DISTANCE " << minimumDistance << "\n";
+
+    cout << "ROUTE 0";
 
     for (int locationIndex : route) {
-
-        cout << " -> "
-             << locations[locationIndex].getName();
+        cout << " " << locationIndex;
     }
 
-    cout << " -> Warehouse\n";
-
-    cout << "Minimum Distance: "
-         << minimumDistance
-         << " units\n";
+    cout << " 0\n";
 
     return 0;
 }

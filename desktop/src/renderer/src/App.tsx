@@ -1,57 +1,282 @@
-
 import { useState } from 'react'
 import './assets/main.css'
+import DeliveryMap, {
+  type MapLocation
+} from './components/DeliveryMap'
 
 type DeliveryLocation = {
   id: number
   name: string
+  address: string
+  city: string
   x: number
   y: number
+  lat: number
+  lng: number
+}
+
+type GeocodeResult = {
+  placeId: number
+  displayName: string
+  city: string
+  lat: number
+  lng: number
+}
+
+function coordinatesFromWarehouse(
+  lat: number,
+  lng: number,
+  warehouse: MapLocation
+): { x: number; y: number } {
+  const warehouseLatitudeRadians = warehouse.lat * (Math.PI / 180)
+
+  const x =
+    (lng - warehouse.lng) *
+    111.32 *
+    Math.cos(warehouseLatitudeRadians)
+
+  const y = (lat - warehouse.lat) * 111.32
+
+  return {
+    x: Number(x.toFixed(3)),
+    y: Number(y.toFixed(3))
+  }
 }
 
 function App(): React.JSX.Element {
   const [activePage, setActivePage] = useState('Dashboard')
 
+  const [warehouse, setWarehouse] = useState<MapLocation | null>(null)
   const [locations, setLocations] = useState<DeliveryLocation[]>([])
-  const [locationName, setLocationName] = useState('')
-  const [coordinateX, setCoordinateX] = useState('')
-  const [coordinateY, setCoordinateY] = useState('')
+
+  const [warehouseQuery, setWarehouseQuery] = useState('')
+  const [warehouseResults, setWarehouseResults] = useState<GeocodeResult[]>([])
+  const [isSearchingWarehouse, setIsSearchingWarehouse] = useState(false)
+  const [warehouseSearchError, setWarehouseSearchError] = useState('')
+
+  const [deliveryQuery, setDeliveryQuery] = useState('')
+  const [deliveryResults, setDeliveryResults] = useState<GeocodeResult[]>([])
+  const [isSearchingDelivery, setIsSearchingDelivery] = useState(false)
+  const [deliverySearchError, setDeliverySearchError] = useState('')
+
+  const [optimizedRoute, setOptimizedRoute] = useState<string[]>([])
+  const [optimizedDistance, setOptimizedDistance] = useState<number | null>(null)
+  const [isOptimizing, setIsOptimizing] = useState(false)
+  const [optimizerError, setOptimizerError] = useState('')
 
   function openRoutePlanner(): void {
     setActivePage('Route Planner')
   }
 
-  function addLocation(event: React.FormEvent<HTMLFormElement>): void {
-    event.preventDefault()
+  function clearOptimizationResult(): void {
+    setOptimizedRoute([])
+    setOptimizedDistance(null)
+    setOptimizerError('')
+  }
 
-    const name = locationName.trim()
-
-    if (!name || coordinateX === '' || coordinateY === '') {
+  async function searchWarehouse(): Promise<void> {
+    if (!warehouseQuery.trim()) {
+      setWarehouseSearchError('Enter a warehouse address first.')
       return
     }
 
-    const newLocation: DeliveryLocation = {
+    setIsSearchingWarehouse(true)
+    setWarehouseSearchError('')
+    setWarehouseResults([])
+
+    try {
+      const results = await window.api.geocodeAddress(warehouseQuery)
+      setWarehouseResults(results)
+
+      if (results.length === 0) {
+        setWarehouseSearchError(
+          'No matching addresses found. Try adding a city or postal code.'
+        )
+      }
+    } catch (error) {
+      setWarehouseSearchError(
+        error instanceof Error ? error.message : 'Address search failed.'
+      )
+    } finally {
+      setIsSearchingWarehouse(false)
+    }
+  }
+
+  function selectWarehouse(result: GeocodeResult): void {
+    const selectedWarehouse: MapLocation = {
       id: Date.now(),
-      name,
-      x: Number(coordinateX),
-      y: Number(coordinateY)
+      name: result.displayName,
+      lat: result.lat,
+      lng: result.lng
     }
 
-    setLocations((previousLocations) => [
-      ...previousLocations,
-      newLocation
-    ])
+    setWarehouse(selectedWarehouse)
 
-    setLocationName('')
-    setCoordinateX('')
-    setCoordinateY('')
+    // Recalculate delivery coordinates relative to the new warehouse.
+    setLocations((previousLocations) =>
+      previousLocations.map((location) => {
+        const coordinates = coordinatesFromWarehouse(
+          location.lat,
+          location.lng,
+          selectedWarehouse
+        )
+
+        return {
+          ...location,
+          x: coordinates.x,
+          y: coordinates.y
+        }
+      })
+    )
+
+    setWarehouseQuery(result.displayName)
+    setWarehouseResults([])
+    setWarehouseSearchError('')
+    clearOptimizationResult()
+  }
+
+  async function searchDeliveryAddress(): Promise<void> {
+    if (!warehouse) {
+      setDeliverySearchError('Select a warehouse before adding deliveries.')
+      return
+    }
+
+    if (!deliveryQuery.trim()) {
+      setDeliverySearchError('Enter a delivery address first.')
+      return
+    }
+
+    setIsSearchingDelivery(true)
+    setDeliverySearchError('')
+    setDeliveryResults([])
+
+    try {
+      const results = await window.api.geocodeAddress(deliveryQuery)
+      setDeliveryResults(results)
+
+      if (results.length === 0) {
+        setDeliverySearchError(
+          'No matching addresses found. Try adding a city or postal code.'
+        )
+      }
+    } catch (error) {
+      setDeliverySearchError(
+        error instanceof Error ? error.message : 'Address search failed.'
+      )
+    } finally {
+      setIsSearchingDelivery(false)
+    }
+  }
+
+  function addDelivery(result: GeocodeResult): void {
+    if (!warehouse) {
+      setDeliverySearchError('Select a warehouse first.')
+      return
+    }
+
+    if (locations.length >= 15) {
+      setOptimizerError(
+        'The C++ optimizer currently supports a maximum of 15 delivery locations.'
+      )
+      return
+    }
+
+    const coordinates = coordinatesFromWarehouse(
+      result.lat,
+      result.lng,
+      warehouse
+    )
+
+    const newLocation: DeliveryLocation = {
+      id: Date.now(),
+      name: `Delivery ${locations.length + 1}`,
+      address: result.displayName,
+      city: result.city,
+      x: coordinates.x,
+      y: coordinates.y,
+      lat: result.lat,
+      lng: result.lng
+    }
+
+    clearOptimizationResult()
+    setLocations((previousLocations) => [...previousLocations, newLocation])
+    setDeliveryQuery('')
+    setDeliveryResults([])
+    setDeliverySearchError('')
+  }
+
+  function resetRouteLocations(): void {
+    setWarehouse(null)
+    setLocations([])
+    setWarehouseQuery('')
+    setWarehouseResults([])
+    setWarehouseSearchError('')
+    setDeliveryQuery('')
+    setDeliveryResults([])
+    setDeliverySearchError('')
+    clearOptimizationResult()
   }
 
   function removeLocation(id: number): void {
+    clearOptimizationResult()
     setLocations((previousLocations) =>
       previousLocations.filter((location) => location.id !== id)
     )
   }
+
+  async function optimizeRoute(): Promise<void> {
+    if (!warehouse) {
+      setOptimizerError('Please select a warehouse address first.')
+      return
+    }
+
+    if (locations.length === 0) {
+      setOptimizerError('Please add at least one delivery location.')
+      return
+    }
+
+    setIsOptimizing(true)
+    setOptimizerError('')
+    setOptimizedRoute([])
+    setOptimizedDistance(null)
+
+    try {
+      const result = await window.api.optimizeRoute(
+        locations.map(({ name, x, y }) => ({
+          name,
+          x,
+          y
+        }))
+      )
+
+      setOptimizedRoute(result.route)
+      setOptimizedDistance(result.distance)
+    } catch (error) {
+      setOptimizerError(
+        error instanceof Error ? error.message : 'Failed to optimize route.'
+      )
+    } finally {
+      setIsOptimizing(false)
+    }
+  }
+
+  const mapLocations: MapLocation[] = locations.map(
+    ({ id, name, lat, lng }) => ({
+      id,
+      name,
+      lat,
+      lng
+    })
+  )
+
+  const mapRouteNames =
+    optimizedRoute.length > 0 && warehouse
+      ? [
+          'Warehouse',
+          ...optimizedRoute.filter((name) => name !== 'Warehouse'),
+          'Warehouse'
+        ]
+      : optimizedRoute
 
   return (
     <div className="app">
@@ -66,9 +291,7 @@ function App(): React.JSX.Element {
             (page) => (
               <button
                 key={page}
-                className={`nav-item ${
-                  activePage === page ? 'active' : ''
-                }`}
+                className={`nav-item ${activePage === page ? 'active' : ''}`}
                 onClick={() => setActivePage(page)}
               >
                 {page}
@@ -93,7 +316,7 @@ function App(): React.JSX.Element {
               </div>
 
               <div className="status">
-                <span className="status-dot"></span>
+                <span className="status-dot" />
                 Engine ready
               </div>
             </header>
@@ -108,10 +331,7 @@ function App(): React.JSX.Element {
                 </p>
               </div>
 
-              <button
-                className="primary-button"
-                onClick={openRoutePlanner}
-              >
+              <button className="primary-button" onClick={openRoutePlanner}>
                 + New Route
               </button>
             </section>
@@ -129,14 +349,20 @@ function App(): React.JSX.Element {
 
               <div className="stat-card">
                 <p>Routes Planned</p>
-                <h3>0</h3>
-                <span>Start planning today</span>
+                <h3>{optimizedDistance !== null ? 1 : 0}</h3>
+                <span>
+                  {optimizedDistance !== null
+                    ? 'Route optimized'
+                    : 'Start planning today'}
+                </span>
               </div>
 
               <div className="stat-card">
                 <p>Distance Saved</p>
-                <h3>0 km</h3>
-                <span>Optimization will appear here</span>
+                <h3>—</h3>
+                <span>
+                  Compare with your original route to calculate savings
+                </span>
               </div>
             </section>
 
@@ -148,21 +374,56 @@ function App(): React.JSX.Element {
                 </div>
               </div>
 
-              <div className="empty-state">
-                <div className="empty-icon">⌖</div>
-                <h3>No route planned yet</h3>
-                <p>
-                  Add delivery locations and let OptiRoute calculate
-                  the most efficient route.
-                </p>
+              {optimizedDistance === null ? (
+                <div className="empty-state">
+                  <div className="empty-icon">⌖</div>
+                  <h3>No route planned yet</h3>
+                  <p>
+                    Add delivery locations and let OptiRoute calculate the most
+                    efficient route.
+                  </p>
+                  <button
+                    className="secondary-button"
+                    onClick={openRoutePlanner}
+                  >
+                    Create your first route
+                  </button>
+                </div>
+              ) : (
+                <div className="optimized-result">
+                  <h3>Optimized Route</h3>
+                  <p className="optimized-distance">
+                    Total distance: {optimizedDistance.toFixed(2)} km
+                    (approx.)
+                  </p>
 
-                <button
-                  className="secondary-button"
-                  onClick={openRoutePlanner}
-                >
-                  Create your first route
-                </button>
-              </div>
+                  <div className="route-sequence">
+                    {optimizedRoute.map((location, index) => (
+                      <div
+                        className="route-step"
+                        key={`${location}-${index}`}
+                      >
+                        <span className="location-number">{index + 1}</span>
+                        <span>
+                          {location === 'Warehouse'
+                            ? 'Warehouse'
+                            : `${location} — ${
+                                locations.find((item) => item.name === location)?.city ||
+                                'City unavailable'
+                              }`}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+
+                  <button
+                    className="secondary-button"
+                    onClick={openRoutePlanner}
+                  >
+                    View Route Planner
+                  </button>
+                </div>
+              )}
             </section>
           </>
         ) : activePage === 'Route Planner' ? (
@@ -174,70 +435,173 @@ function App(): React.JSX.Element {
               </div>
 
               <div className="status">
-                <span className="status-dot"></span>
-                {locations.length} locations
+                <span className="status-dot" />
+                {locations.length} deliveries
               </div>
             </header>
 
             <section className="route-section">
               <div className="section-heading">
                 <div>
-                  <h2>Add delivery locations</h2>
-                  <p>
-                    Enter location coordinates to prepare your delivery
-                    route.
-                  </p>
+                  <h2>Set your warehouse</h2>
+                  <p>Search for the starting address of your delivery route.</p>
                 </div>
               </div>
 
-              <form className="location-form" onSubmit={addLocation}>
+              <form
+                className="location-form"
+                onSubmit={(event) => {
+                  event.preventDefault()
+                  void searchWarehouse()
+                }}
+              >
                 <label>
-                  Location name
+                  Warehouse address
                   <input
                     type="text"
-                    placeholder="e.g. Delivery A"
-                    value={locationName}
-                    onChange={(event) =>
-                      setLocationName(event.target.value)
-                    }
+                    placeholder="Enter warehouse address, city or postal code"
+                    value={warehouseQuery}
+                    onChange={(event) => setWarehouseQuery(event.target.value)}
                     required
                   />
                 </label>
 
-                <div className="coordinate-fields">
-                  <label>
-                    X coordinate
-                    <input
-                      type="number"
-                      step="any"
-                      placeholder="e.g. 3"
-                      value={coordinateX}
-                      onChange={(event) =>
-                        setCoordinateX(event.target.value)
-                      }
-                      required
-                    />
-                  </label>
-
-                  <label>
-                    Y coordinate
-                    <input
-                      type="number"
-                      step="any"
-                      placeholder="e.g. 4"
-                      value={coordinateY}
-                      onChange={(event) =>
-                        setCoordinateY(event.target.value)
-                      }
-                      required
-                    />
-                  </label>
-                </div>
-
-                <button className="primary-button" type="submit">
-                  + Add Location
+                <button
+                  className="primary-button"
+                  type="submit"
+                  disabled={isSearchingWarehouse}
+                >
+                  {isSearchingWarehouse ? 'Searching...' : 'Find Warehouse'}
                 </button>
               </form>
+
+              {warehouseSearchError && (
+                <p className="optimizer-error">{warehouseSearchError}</p>
+              )}
+
+              {warehouseResults.length > 0 && (
+                <div className="location-list">
+                  {warehouseResults.map((result) => (
+                    <div className="location-item" key={result.placeId}>
+                      <div className="location-details">
+                        <h3>{result.displayName}</h3>
+                        <p>
+                          {result.lat.toFixed(6)}, {result.lng.toFixed(6)}
+                        </p>
+                      </div>
+
+                      <button
+                        className="secondary-button"
+                        onClick={() => selectWarehouse(result)}
+                      >
+                        Select Warehouse
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {warehouse && (
+                <div className="map-instructions">
+                  <strong>Warehouse selected</strong>
+                  <p>{warehouse.name}</p>
+                </div>
+              )}
+            </section>
+
+            <section className="route-section">
+              <div className="section-heading">
+                <div>
+                  <h2>Add delivery addresses</h2>
+                  <p>
+                    Search for each delivery address and select the matching
+                    result. You can add up to 15 delivery locations.
+                  </p>
+                </div>
+              </div>
+
+              <form
+                className="location-form"
+                onSubmit={(event) => {
+                  event.preventDefault()
+                  void searchDeliveryAddress()
+                }}
+              >
+                <label>
+                  Delivery address
+                  <input
+                    type="text"
+                    placeholder="Enter delivery address, city or postal code"
+                    value={deliveryQuery}
+                    onChange={(event) => setDeliveryQuery(event.target.value)}
+                    required
+                    disabled={!warehouse}
+                  />
+                </label>
+
+                <button
+                  className="primary-button"
+                  type="submit"
+                  disabled={!warehouse || isSearchingDelivery}
+                >
+                  {isSearchingDelivery ? 'Searching...' : 'Find Address'}
+                </button>
+              </form>
+
+              {deliverySearchError && (
+                <p className="optimizer-error">{deliverySearchError}</p>
+              )}
+
+              {deliveryResults.length > 0 && (
+                <div className="location-list">
+                  {deliveryResults.map((result) => (
+                    <div className="location-item" key={result.placeId}>
+                      <div className="location-details">
+                        <h3>{result.displayName}</h3>
+                        <p>
+                          {result.lat.toFixed(6)}, {result.lng.toFixed(6)}
+                        </p>
+                      </div>
+
+                      <button
+                        className="secondary-button"
+                        onClick={() => addDelivery(result)}
+                        disabled={locations.length >= 15}
+                      >
+                        Add Delivery
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </section>
+
+            <section className="route-section">
+              <div className="section-heading">
+                <div>
+                  <h2>Route Map</h2>
+                  <p>
+                    Your warehouse and selected delivery addresses appear on
+                    the map.
+                  </p>
+                </div>
+              </div>
+
+              <DeliveryMap
+                warehouse={warehouse}
+                locations={mapLocations}
+                routeNames={mapRouteNames}
+              />
+
+              <div className="map-actions">
+                <button
+                  className="secondary-button"
+                  onClick={resetRouteLocations}
+                  disabled={!warehouse && locations.length === 0}
+                >
+                  Reset Route Locations
+                </button>
+              </div>
             </section>
 
             <section className="route-section">
@@ -253,8 +617,11 @@ function App(): React.JSX.Element {
 
               {locations.length === 0 ? (
                 <div className="empty-state">
-                  <h3>No locations added</h3>
-                  <p>Add your first delivery location using the form.</p>
+                  <h3>No deliveries added</h3>
+                  <p>
+                    Search for a delivery address above and select Add
+                    Delivery.
+                  </p>
                 </div>
               ) : (
                 <div className="location-list">
@@ -264,8 +631,9 @@ function App(): React.JSX.Element {
 
                       <div className="location-details">
                         <h3>{location.name}</h3>
+                        <p>{location.address}</p>
                         <p>
-                          X: {location.x} · Y: {location.y}
+                          Approx. X: {location.x} km · Y: {location.y} km
                         </p>
                       </div>
 
@@ -277,6 +645,59 @@ function App(): React.JSX.Element {
                       </button>
                     </div>
                   ))}
+                </div>
+              )}
+            </section>
+
+            <section className="route-section">
+              <div className="section-heading">
+                <div>
+                  <h2>Route Optimization</h2>
+                  <p>
+                    Calculate the delivery order using your C++ optimization
+                    engine.
+                  </p>
+                </div>
+              </div>
+
+              <button
+                className="primary-button"
+                onClick={() => void optimizeRoute()}
+                disabled={!warehouse || locations.length === 0 || isOptimizing}
+              >
+                {isOptimizing ? 'Optimizing route...' : 'Optimize Route'}
+              </button>
+
+              {optimizerError && (
+                <p className="optimizer-error">{optimizerError}</p>
+              )}
+
+              {optimizedDistance !== null && (
+                <div className="optimized-result">
+                  <h3>Optimized Route</h3>
+                  <p className="optimized-distance">
+                    Total distance: {optimizedDistance.toFixed(2)} km
+                    (approx. straight-line distance)
+                  </p>
+
+                  <div className="route-sequence">
+                    {optimizedRoute.map((location, index) => (
+                      <div
+                        className="route-step"
+                        key={`${location}-${index}`}
+                      >
+                        <span className="location-number">{index + 1}</span>
+                        <span>
+                          {location === 'Warehouse'
+                            ? 'Warehouse'
+                            : `${location} — ${
+                                locations.find((item) => item.name === location)?.city ||
+                                'City unavailable'
+                              }`}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
                 </div>
               )}
             </section>
