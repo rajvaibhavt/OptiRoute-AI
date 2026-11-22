@@ -15,13 +15,21 @@ interface GeocodeResult {
   lng: number
 }
 
+interface RouteOptimizationRequest {
+  warehouse: RouteLocation
+  locations: RouteLocation[]
+}
+
+interface RouteOptimizationResult {
+  distance: number
+  route: string[]
+  geometry: [number, number][]
+}
+
 interface OptiRouteAPI {
   optimizeRoute(
-    locations: RouteLocation[]
-  ): Promise<{
-    distance: number
-    route: string[]
-  }>
+    request: RouteOptimizationRequest
+  ): Promise<RouteOptimizationResult>
 
   geocodeAddress(query: string): Promise<GeocodeResult[]>
 }

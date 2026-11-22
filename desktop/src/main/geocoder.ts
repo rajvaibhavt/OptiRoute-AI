@@ -10,7 +10,7 @@ type NominatimItem = {
     village?: string
     municipality?: string
     county?: string
-     state_district?: string
+    state_district?: string
     state?: string
   }
 }
@@ -18,7 +18,7 @@ type NominatimItem = {
 export type GeocodeResult = {
   placeId: number
   displayName: string
-   city: string
+  city: string
   lat: number
   lng: number
 }
@@ -36,6 +36,7 @@ function wait(milliseconds: number): Promise<void> {
   })
 }
 
+// Keep requests at least 1 second apart.
 async function respectRateLimit(): Promise<void> {
   const nextRequest = requestQueue.then(async () => {
     const remaining = 1100 - (Date.now() - lastRequestAt)
@@ -52,32 +53,45 @@ async function respectRateLimit(): Promise<void> {
   await nextRequest
 }
 
-export async function geocodeAddress(
+function createSearchQueries(query: string): string[] {
+  const original = query.trim().replace(/\s+/g, ' ')
+
+  const queries = [original]
+
+  const lower = original.toLowerCase()
+
+  // Try common spellings for Kajipatti / Kaji Patti.
+  if (lower.includes('kajipatti') || lower.includes('kaji patti')) {
+    queries.push(
+      'Kaji Patti, Gauriganj, Amethi, Uttar Pradesh, India',
+      'Kajipatti, Gauriganj, Amethi, Uttar Pradesh, India',
+      'Kaji Patti, Amethi, Uttar Pradesh, India'
+    )
+  }
+
+  // Broader location fallback.
+  if (lower.includes('gauriganj')) {
+    queries.push(
+      'Gauriganj, Amethi, Uttar Pradesh, India'
+    )
+  }
+
+  // Remove duplicate search strings.
+  return [...new Set(queries)]
+}
+
+async function searchNominatim(
   query: string
 ): Promise<GeocodeResult[]> {
-  if (typeof query !== 'string' || query.trim().length < 2) {
-    throw new Error('Please enter a valid address.')
-  }
-
-  const normalizedQuery = query
-    .trim()
-    .replace(/\s+/g, ' ')
-    .toLowerCase()
-
-  const cached = cache.get(normalizedQuery)
-
-  if (cached) {
-    return cached
-  }
-
   await respectRateLimit()
 
   const url = new URL(endpoint)
 
-  url.searchParams.set('q', query.trim())
+  url.searchParams.set('q', query)
   url.searchParams.set('format', 'jsonv2')
-  url.searchParams.set('limit', '3')
+  url.searchParams.set('limit', '5')
   url.searchParams.set('addressdetails', '1')
+  url.searchParams.set('countrycodes', 'in')
 
   const response = await fetch(url, {
     headers: {
@@ -103,32 +117,73 @@ export async function geocodeAddress(
 
   const data = (await response.json()) as NominatimItem[]
 
- const results = data
-  .map((item) => ({
-    placeId: Number(item.place_id),
-    displayName: String(item.display_name),
+  return data
+    .map((item) => ({
+      placeId: Number(item.place_id),
+      displayName: String(item.display_name),
 
-    city:
-      item.address?.city ||
-      item.address?.town ||
-      item.address?.village ||
-      item.address?.municipality ||
-      item.address?.county ||
-      item.address?.state_district ||
-      item.address?.state ||
-      'City unavailable',
+      city:
+        item.address?.city ||
+        item.address?.town ||
+        item.address?.village ||
+        item.address?.municipality ||
+        item.address?.county ||
+        item.address?.state_district ||
+        item.address?.state ||
+        'City unavailable',
 
-    lat: Number(item.lat),
-    lng: Number(item.lon)
-  }))
-  .filter(
-    (item) =>
-      Number.isFinite(item.placeId) &&
-      item.displayName.length > 0 &&
-      Number.isFinite(item.lat) &&
-      Number.isFinite(item.lng)
-  )
-  cache.set(normalizedQuery, results)
+      lat: Number(item.lat),
+      lng: Number(item.lon)
+    }))
+    .filter(
+      (item) =>
+        Number.isFinite(item.placeId) &&
+        item.displayName.length > 0 &&
+        Number.isFinite(item.lat) &&
+        Number.isFinite(item.lng)
+    )
+}
 
-  return results
+export async function geocodeAddress(
+  query: string
+): Promise<GeocodeResult[]> {
+  if (typeof query !== 'string' || query.trim().length < 2) {
+    throw new Error('Please enter a valid address.')
+  }
+
+  const normalizedQuery = query
+    .trim()
+    .replace(/\s+/g, ' ')
+    .toLowerCase()
+
+  const cached = cache.get(normalizedQuery)
+
+  if (cached) {
+    return cached
+  }
+
+  const searchQueries = createSearchQueries(query)
+
+  const allResults: GeocodeResult[] = []
+  const seenPlaceIds = new Set<number>()
+
+  for (const searchQuery of searchQueries) {
+    const results = await searchNominatim(searchQuery)
+
+    for (const result of results) {
+      if (!seenPlaceIds.has(result.placeId)) {
+        seenPlaceIds.add(result.placeId)
+        allResults.push(result)
+      }
+    }
+
+    // Stop when a query returns results.
+    if (allResults.length > 0) {
+      break
+    }
+  }
+
+  cache.set(normalizedQuery, allResults)
+
+  return allResults
 }
