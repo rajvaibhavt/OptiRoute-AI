@@ -11,7 +11,7 @@ import {
   useMapEvents
 } from 'react-leaflet'
 
-import type { LatLngBoundsExpression } from 'leaflet'
+import L, { type LatLngBoundsExpression } from 'leaflet'
 
 import 'leaflet/dist/leaflet.css'
 
@@ -30,6 +30,14 @@ export type WarehouseMapPoint = {
   lat: number
   lng: number
 }
+
+const warehouseIcon = L.divIcon({
+  className: 'warehouse-marker-wrapper',
+  html: '<div class="warehouse-marker"></div>',
+  iconSize: [30, 30],
+  iconAnchor: [15, 30],
+  popupAnchor: [0, -30]
+})
 
 type DeliveryMapProps = {
   warehouse: MapLocation | null
@@ -231,7 +239,11 @@ function DeliveryMap({
         {/* Current warehouse marker */}
 
         {warehouse && (
-          <Marker position={[warehouse.lat, warehouse.lng]}>
+  <Marker
+    position={[warehouse.lat, warehouse.lng]}
+    icon={warehouseIcon}
+    zIndexOffset={1000}
+  >
             <Popup>
               <strong>Current Warehouse</strong>
               <br />
@@ -245,12 +257,14 @@ function DeliveryMap({
         {/* Temporary selected warehouse point */}
 
         {selectingWarehouse && selectedWarehousePoint && (
-          <Marker
-            position={[
-              selectedWarehousePoint.lat,
-              selectedWarehousePoint.lng
-            ]}
-          >
+         <Marker
+  position={[
+    selectedWarehousePoint.lat,
+    selectedWarehousePoint.lng
+  ]}
+  icon={warehouseIcon}
+  zIndexOffset={1000}
+>
             <Popup>
               <strong>Selected Warehouse Point</strong>
               <br />

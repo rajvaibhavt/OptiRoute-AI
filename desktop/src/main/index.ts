@@ -1,28 +1,12 @@
 
 
 import { app, shell, BrowserWindow, ipcMain } from 'electron'
-
 import { join } from 'path'
-
 import { spawn } from 'child_process'
-
 import { existsSync } from 'fs'
-
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
-
 import icon from '../../resources/icon.png?asset'
-
 import { geocodeAddress } from './geocoder'
-
-
-
-// --------------------------------------------------
-
-// Types
-
-// --------------------------------------------------
-
-
 
 interface RouteLocation {
 
@@ -34,20 +18,15 @@ interface RouteLocation {
 
 }
 
-
-
 interface RouteOptimizationResult {
 
   distance: number // meters
-
+ duration: number // seconds
   route: string[]
 
   geometry: [number, number][] // Leaflet: [latitude, longitude]
 
 }
-
-
-
 interface OsrmTableResponse {
 
   code: string
@@ -56,8 +35,6 @@ interface OsrmTableResponse {
 
 }
 
-
-
 interface OsrmRouteResponse {
 
   code: string
@@ -65,6 +42,7 @@ interface OsrmRouteResponse {
   routes: {
 
     distance: number
+    duration: number
 
     geometry: {
 
@@ -236,84 +214,51 @@ async function getRoadDistanceMatrix(
 
 
 
+
 async function getRoadGeometry(
-
   orderedLocations: RouteLocation[]
-
-): Promise<[number, number][]> {
-
+): Promise<{
+  geometry: [number, number][]
+  duration: number
+}> {
   const coordinates = orderedLocations
-
     .map((location) => `${location.x},${location.y}`)
-
     .join(';')
 
-
-
   const url =
-
     `${OSRM_BASE_URL}/route/v1/driving/${coordinates}` +
-
     '?overview=full&geometries=geojson&steps=false'
 
-
-
   const response = await fetch(url, {
-
     signal: AbortSignal.timeout(20000)
-
   })
 
-
-
   if (!response.ok) {
-
     throw new Error(`OSRM Route API failed: HTTP ${response.status}`)
-
   }
-
-
 
   const data = (await response.json()) as OsrmRouteResponse
 
-
-
   if (
-
     data.code !== 'Ok' ||
-
     !Array.isArray(data.routes) ||
-
-    !data.routes[0]?.geometry?.coordinates
-
+    !data.routes[0]?.geometry?.coordinates ||
+    typeof data.routes[0].duration !== 'number'
   ) {
-
     throw new Error('OSRM could not generate the road route')
-
   }
 
+  const route = data.routes[0]
 
-
-  // OSRM GeoJSON coordinates:
-
-  // [longitude, latitude]
-
-  //
-
-  // Leaflet coordinates:
-
-  // [latitude, longitude]
-
-
-
-  return data.routes[0].geometry.coordinates.map(
-
-    ([longitude, latitude]) => [latitude, longitude]
-
+  const geometry = route.geometry.coordinates.map(
+    ([longitude, latitude]) => [latitude, longitude] as [number, number]
   )
 
+  return {
+    geometry,
+    duration: route.duration
+  }
 }
-
 
 
 // --------------------------------------------------
@@ -343,6 +288,7 @@ async function runCppOptimizer(
     return {
 
       distance: 0,
+      duration: 0,
 
       route: ['Warehouse'],
 
@@ -600,7 +546,7 @@ async function runCppOptimizer(
 
   // Step 6: Get actual road geometry from OSRM.
 
-  const geometry = await getRoadGeometry(orderedLocations)
+  const roadRoute = await getRoadGeometry(orderedLocations)
 
 
 
@@ -609,10 +555,10 @@ async function runCppOptimizer(
   return {
 
     distance: optimizerResult.distance,
-
+    duration: roadRoute.duration,
     route,
 
-    geometry
+    geometry: roadRoute.geometry,
 
   }
 
