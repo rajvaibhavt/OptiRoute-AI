@@ -46,6 +46,40 @@ type GeocodeResult = {
 }
 
 
+function formatDuration(seconds: number): string {
+  if (!Number.isFinite(seconds) || seconds < 0) {
+    return '—'
+  }
+
+  const totalMinutes = Math.round(seconds / 60)
+  const hours = Math.floor(totalMinutes / 60)
+  const minutes = totalMinutes % 60
+
+  if (hours === 0) {
+    return `${minutes} min`
+  }
+
+  if (minutes === 0) {
+    return `${hours} hr`
+  }
+
+  return `${hours} hr ${minutes} min`
+}
+
+
+function getWarehouseShortName(name: string): string {
+  if (name === 'Map-selected Warehouse') {
+    return 'Map-selected'
+  }
+
+  const parts = name
+    .split(',')
+    .map((part) => part.trim())
+    .filter(Boolean)
+
+  return parts.slice(0, 2).join(', ') || name
+}
+
 
 function App(): React.JSX.Element {
 
@@ -87,7 +121,7 @@ function App(): React.JSX.Element {
   const [optimizedRoute, setOptimizedRoute] = useState<string[]>([])
 
   const [optimizedDistance, setOptimizedDistance] = useState<number | null>(null)
-
+  const [optimizedDuration, setOptimizedDuration] = useState<number | null>(null)
   const [optimizedGeometry, setOptimizedGeometry] = useState<[number, number][]>([])
 
   const [isOptimizing, setIsOptimizing] = useState(false)
@@ -109,7 +143,8 @@ function App(): React.JSX.Element {
     setOptimizedRoute([])
 
     setOptimizedDistance(null)
-
+    setOptimizedDuration(null)
+    setOptimizedDuration(null)
     setOptimizedGeometry([])
 
     setOptimizerError('')
@@ -536,6 +571,7 @@ function App(): React.JSX.Element {
       // The backend returns meters; the UI displays kilometers.
 
       setOptimizedDistance(result.distance / 1000)
+      setOptimizedDuration(result.duration)
 
       setOptimizedGeometry(result.geometry)
 
@@ -827,6 +863,36 @@ function App(): React.JSX.Element {
 
                   </p>
 
+        
+<div className="route-summary-grid">
+  <div className="route-summary-card">
+    <span>Estimated driving time</span>
+    <strong>
+      {optimizedDuration !== null
+        ? formatDuration(optimizedDuration)
+        : '—'}
+    </strong>
+    <small>OSRM road estimate</small>
+  </div>
+
+  <div className="route-summary-card">
+    <span>Delivery stops</span>
+    <strong>{locations.length}</strong>
+    <small>Locations in this route</small>
+  </div>
+
+  <div className="route-summary-card">
+    <span>Starting warehouse</span>
+    
+<strong title={warehouse?.name || undefined}>
+  {warehouse
+    ? getWarehouseShortName(warehouse.name)
+    : 'Not selected'}
+</strong>
+
+    <small>Route starts and ends here</small>
+  </div>
+</div>
 
 
                   <div className="route-sequence">
