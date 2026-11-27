@@ -23,6 +23,7 @@ interface RouteOptimizationRequest {
 interface RouteOptimizationResult {
   distance: number
   duration: number
+  originalDistance: number
   route: string[]
   geometry: [number, number][]
 }

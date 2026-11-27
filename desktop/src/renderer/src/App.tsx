@@ -122,6 +122,7 @@ function App(): React.JSX.Element {
 
   const [optimizedDistance, setOptimizedDistance] = useState<number | null>(null)
   const [optimizedDuration, setOptimizedDuration] = useState<number | null>(null)
+  const [originalDistance, setOriginalDistance] = useState<number | null>(null)
   const [optimizedGeometry, setOptimizedGeometry] = useState<[number, number][]>([])
 
   const [isOptimizing, setIsOptimizing] = useState(false)
@@ -145,6 +146,7 @@ function App(): React.JSX.Element {
     setOptimizedDistance(null)
     setOptimizedDuration(null)
     setOptimizedDuration(null)
+    setOriginalDistance(null)
     setOptimizedGeometry([])
 
     setOptimizerError('')
@@ -572,7 +574,7 @@ function App(): React.JSX.Element {
 
       setOptimizedDistance(result.distance / 1000)
       setOptimizedDuration(result.duration)
-
+       setOriginalDistance(result.originalDistance / 1000)
       setOptimizedGeometry(result.geometry)
 
     } catch (error) {
@@ -627,7 +629,10 @@ function App(): React.JSX.Element {
 
       : optimizedRoute
 
-
+const distanceSaved =
+  originalDistance !== null && optimizedDistance !== null
+    ? originalDistance - optimizedDistance
+    : null
 
   return (
 
@@ -788,18 +793,24 @@ function App(): React.JSX.Element {
 
 
               <div className="stat-card">
+  <p>Distance Saved</p>
 
-                <p>Distance Saved</p>
+  <h3>
+    {distanceSaved !== null
+      ? `${distanceSaved > 0 ? '+' : ''}${distanceSaved.toFixed(2)} km`
+      : '—'}
+  </h3>
 
-                <h3>—</h3>
-
-                <span>
-
-                  Compare with your original route to calculate savings
-
-                </span>
-
-              </div>
+  <span>
+    {distanceSaved !== null
+      ? distanceSaved > 0
+        ? 'Less distance than original route'
+        : distanceSaved === 0
+          ? 'Same distance as original route'
+          : 'Optimized route is longer than original'
+      : 'Optimize a route to calculate savings'}
+  </span>
+</div>
 
             </section>
 
