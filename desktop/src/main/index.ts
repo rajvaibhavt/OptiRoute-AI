@@ -1,9 +1,11 @@
 
 
+
 import { app, shell, BrowserWindow, ipcMain } from 'electron'
-import { join } from 'path'
+import { join, dirname } from 'path'
 import { spawn } from 'child_process'
 import { existsSync } from 'fs'
+import { readFile, writeFile, mkdir } from 'fs/promises'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
 import { geocodeAddress } from './geocoder'
@@ -68,6 +70,55 @@ interface RouteOptimizationRequest {
 // Use a suitable routing provider or self-host OSRM for production.
 
 const OSRM_BASE_URL = 'https://router.project-osrm.org'
+const SAVED_ROUTES_FILE = join(app.getPath('userData'), 'saved-routes.json')
+
+interface SavedRoute {
+  id: string
+  name: string
+  savedAt: string
+  warehouse: {
+    name: string
+    x: number
+    y: number
+    [key: string]: unknown
+  }
+  locations: {
+    name: string
+    x: number
+    y: number
+    [key: string]: unknown
+  }[]
+  optimizedRoute: string[]
+  optimizedDistance: number | null
+  optimizedDuration: number | null
+  originalDistance: number | null
+  optimizedGeometry: [number, number][]
+}
+
+async function readSavedRoutes(): Promise<SavedRoute[]> {
+  try {
+    const fileContent = await readFile(SAVED_ROUTES_FILE, 'utf-8')
+    const routes = JSON.parse(fileContent) as SavedRoute[]
+
+    return Array.isArray(routes) ? routes : []
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+      return []
+    }
+
+    throw error
+  }
+}
+
+async function writeSavedRoutes(routes: SavedRoute[]): Promise<void> {
+  await mkdir(dirname(SAVED_ROUTES_FILE), { recursive: true })
+  await writeFile(
+    SAVED_ROUTES_FILE,
+    JSON.stringify(routes, null, 2),
+    'utf-8'
+  )
+}
+
 
 
 
@@ -541,9 +592,6 @@ async function runCppOptimizer(
   // Step 6: Get actual road geometry from OSRM.
 
   const roadRoute = await getRoadGeometry(orderedLocations)
-
-
-
   // Step 7: Return result to frontend.
 
   return {
@@ -566,8 +614,6 @@ async function runCppOptimizer(
 // Create Electron window
 
 // --------------------------------------------------
-
-
 
 function createWindow(): void {
 
@@ -769,6 +815,61 @@ app.whenReady().then(() => {
     return geocodeAddress(query)
 
   })
+
+  // Saved routes: list, save, and delete
+
+  ipcMain.handle('saved-routes:list', async () => {
+    return readSavedRoutes()
+  })
+
+  ipcMain.handle(
+    'saved-routes:save',
+    async (_event, route: SavedRoute) => {
+      if (
+        !route ||
+        typeof route.id !== 'string' ||
+        typeof route.name !== 'string' ||
+        !Array.isArray(route.locations) ||
+        !Array.isArray(route.optimizedRoute) ||
+        !Array.isArray(route.optimizedGeometry)
+      ) {
+        throw new Error('Invalid saved route data.')
+      }
+
+      const routes = await readSavedRoutes()
+      const existingIndex = routes.findIndex(
+        (savedRoute) => savedRoute.id === route.id
+      )
+
+      if (existingIndex >= 0) {
+        routes[existingIndex] = route
+      } else {
+        routes.push(route)
+      }
+
+      await writeSavedRoutes(routes)
+
+      return routes
+    }
+  )
+
+  ipcMain.handle(
+    'saved-routes:delete',
+    async (_event, id: string) => {
+      if (typeof id !== 'string') {
+        throw new Error('Invalid saved route ID.')
+      }
+
+      const routes = await readSavedRoutes()
+      const updatedRoutes = routes.filter(
+        (route) => route.id !== id
+      )
+
+      await writeSavedRoutes(updatedRoutes)
+
+      return updatedRoutes
+    }
+  )
 
 
 
