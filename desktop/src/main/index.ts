@@ -22,6 +22,7 @@ interface RouteOptimizationResult {
 
   distance: number // meters
  duration: number // seconds
+   originalDistance: number
   route: string[]
 
   geometry: [number, number][] // Leaflet: [latitude, longitude]
@@ -195,15 +196,20 @@ async function getRoadDistanceMatrix(
     matrix.push(convertedRow)
 
   }
-
-
-
   return matrix
 
 }
+function calculateOriginalDistance(matrix: number[][]): number {
+  let totalDistance = 0
 
+  for (let i = 0; i < matrix.length - 1; i++) {
+    totalDistance += matrix[i][i + 1]
+  }
 
+  totalDistance += matrix[matrix.length - 1][0]
 
+  return totalDistance
+}
 // --------------------------------------------------
 
 // OSRM Route API
@@ -289,8 +295,8 @@ async function runCppOptimizer(
 
       distance: 0,
       duration: 0,
-
-      route: ['Warehouse'],
+      originalDistance : 0,
+            route: ['Warehouse'],
 
       geometry: [[warehouse.y, warehouse.x]]
 
@@ -303,28 +309,16 @@ async function runCppOptimizer(
   // Step 1: Get road-distance matrix from OSRM.
 
   const matrix = await getRoadDistanceMatrix(allLocations)
-
-
-
+  const originalDistance = calculateOriginalDistance(matrix)
   // Step 2: Prepare input for the C++ program.
-
   //
-
   // Expected C++ input:
-
   // deliveryCount
-
   // matrix row 1
-
   // matrix row 2
-
   // ...
-
   //
-
   // Distances are in meters.
-
-
 
   const input =
 
@@ -556,6 +550,7 @@ async function runCppOptimizer(
 
     distance: optimizerResult.distance,
     duration: roadRoute.duration,
+     originalDistance,
     route,
 
     geometry: roadRoute.geometry,
