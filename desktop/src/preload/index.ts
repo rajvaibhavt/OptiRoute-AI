@@ -21,6 +21,30 @@ interface RouteOptimizationResult {
   geometry: [number, number][]
 }
 
+interface SavedRouteLocation {
+  id: number
+  name: string
+  address: string
+  city: string
+  x: number
+  y: number
+  lat: number
+  lng: number
+}
+
+interface SavedRoute {
+  id: string
+  name: string
+  savedAt: string
+  warehouse: SavedRouteLocation
+  locations: SavedRouteLocation[]
+  optimizedRoute: string[]
+  optimizedDistance: number | null
+  optimizedDuration: number | null
+  originalDistance: number | null
+  optimizedGeometry: [number, number][]
+}
+
 const api = {
   optimizeRoute: (
     request: RouteOptimizationRequest
@@ -31,9 +55,20 @@ const api = {
     ) as Promise<RouteOptimizationResult>,
 
   geocodeAddress: (query: string) =>
-    ipcRenderer.invoke('geocode:address', query)
+    ipcRenderer.invoke('geocode:address', query),
+   
+  getSavedRoutes: (): Promise<SavedRoute[]> =>
+    ipcRenderer.invoke('saved-routes:list') as Promise<SavedRoute[]>,
+
+  saveRoute: (route: SavedRoute): Promise<SavedRoute[]> =>
+    ipcRenderer.invoke('saved-routes:save', route) as Promise<SavedRoute[]>,
+
+  deleteSavedRoute: (id: string): Promise<SavedRoute[]> =>
+    ipcRenderer.invoke('saved-routes:delete', id) as Promise<SavedRoute[]>
+
 }
 
+  
 if (process.contextIsolated) {
   try {
     contextBridge.exposeInMainWorld('electron', electronAPI)

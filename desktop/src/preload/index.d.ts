@@ -28,12 +28,43 @@ interface RouteOptimizationResult {
   geometry: [number, number][]
 }
 
+
+interface SavedRouteLocation {
+  id: number
+  name: string
+  address: string
+  city: string
+  x: number
+  y: number
+  lat: number
+  lng: number
+}
+interface SavedRoute {
+  id: string
+  name: string
+  savedAt: string
+  warehouse: SavedRouteLocation
+  locations: SavedRouteLocation[]
+  optimizedRoute: string[]
+  optimizedDistance: number | null
+  optimizedDuration: number | null
+  originalDistance: number | null
+  optimizedGeometry: [number, number][]
+}
+
 interface OptiRouteAPI {
   optimizeRoute(
     request: RouteOptimizationRequest
   ): Promise<RouteOptimizationResult>
 
   geocodeAddress(query: string): Promise<GeocodeResult[]>
+
+  getSavedRoutes(): Promise<SavedRoute[]>
+
+  saveRoute(route: SavedRoute): Promise<SavedRoute[]>
+
+  deleteSavedRoute(id: string): Promise<SavedRoute[]>
+
 }
 
 declare global {

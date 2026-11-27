@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState , useEffect } from 'react'
 
 import './assets/main.css'
 
@@ -7,30 +7,16 @@ import DeliveryMap, {
   type WarehouseMapPoint
 } from './components/DeliveryMap'
 
-
-
 type DeliveryLocation = {
-
   id: number
-
   name: string
-
   address: string
-
   city: string
-
   x: number
-
   y: number
-
   lat: number
-
   lng: number
-
 }
-
-
-
 type GeocodeResult = {
 
   placeId: number
@@ -44,6 +30,10 @@ type GeocodeResult = {
   lng: number
 
 }
+
+type SavedRoute = Awaited<
+  ReturnType<typeof window.api.getSavedRoutes>
+>[number]
 
 
 function formatDuration(seconds: number): string {
@@ -95,8 +85,22 @@ function App(): React.JSX.Element {
     useState<WarehouseMapPoint | null>(null)
 
   const [locations, setLocations] = useState<DeliveryLocation[]>([])
+const [savedRoutes, setSavedRoutes] = useState<SavedRoute[]>([])
+const [isSaveRouteModalOpen, setIsSaveRouteModalOpen] =
+  useState(false)
 
-
+const [routeName, setRouteName] = useState('')
+const loadSavedRoutes = async (): Promise<void> => {
+  try {
+    const routes = await window.api.getSavedRoutes()
+    setSavedRoutes(routes)
+  } catch (error) {
+    console.error('Failed to load saved routes:', error)
+  }
+}
+useEffect(() => {
+  void loadSavedRoutes()
+}, [])
 
   const [warehouseQuery, setWarehouseQuery] = useState('')
 
@@ -593,6 +597,90 @@ function App(): React.JSX.Element {
 
   }
 
+async function saveCurrentRoute(): Promise<void> {
+  if (!warehouse || optimizedDistance === null) {
+    setOptimizerError('Please optimize a route before saving.')
+    return
+  }
+
+  const name = routeName.trim()
+
+if (!name) {
+  return
+}
+  const newRoute: SavedRoute = {
+    id: crypto.randomUUID(),
+    name,
+    savedAt: new Date().toISOString(),
+    warehouse: {
+  id: warehouse.id,
+  name: warehouse.name,
+  address: warehouse.name,
+  city: '',
+  x: warehouse.lng,
+  y: warehouse.lat,
+  lat: warehouse.lat,
+  lng: warehouse.lng
+},
+locations,
+    
+    optimizedRoute,
+    optimizedDistance,
+    optimizedDuration,
+    originalDistance,
+    optimizedGeometry
+  }
+
+  try {
+    const updatedRoutes = await window.api.saveRoute(newRoute)
+
+    setSavedRoutes(updatedRoutes)
+     setIsSaveRouteModalOpen(false)
+setRouteName('')
+    window.alert('Route saved successfully!')
+  } catch (error) {
+    console.error('Failed to save route:', error)
+
+    setOptimizerError(
+      error instanceof Error
+        ? error.message
+        : 'Failed to save route.'
+    )
+  }
+}
+
+function loadSavedRoute(route: SavedRoute): void {
+  setWarehouse(route.warehouse)
+  setWarehouseQuery(route.warehouse.name)
+
+  setLocations(route.locations)
+
+  setOptimizedRoute(route.optimizedRoute)
+  setOptimizedDistance(route.optimizedDistance)
+  setOptimizedDuration(route.optimizedDuration)
+  setOriginalDistance(route.originalDistance)
+  setOptimizedGeometry(route.optimizedGeometry)
+
+  setIsSelectingWarehouse(false)
+  setSelectedWarehousePoint(null)
+
+  setOptimizerError('')
+  setActivePage('Route Planner')
+}
+ 
+async function deleteSavedRoute(routeId: string): Promise<void> {
+  try {
+    const updatedRoutes = await window.api.deleteSavedRoute(routeId)
+    setSavedRoutes(updatedRoutes)
+  } catch (error) {
+    console.error('Failed to delete saved route:', error)
+    setOptimizerError(
+      error instanceof Error
+        ? error.message
+        : 'Failed to delete saved route.'
+    )
+  }
+}
 
 
   const mapLocations: MapLocation[] = locations.map(
@@ -652,7 +740,7 @@ const distanceSaved =
 
         <nav className="navigation">
 
-          {['Dashboard', 'Route Planner', 'Deliveries', 'Locations'].map(
+          {['Dashboard', 'Route Planner', 'Deliveries', 'Locations', 'Saved Routes'].map(
 
             (page) => (
 
@@ -1520,7 +1608,17 @@ const distanceSaved =
 
               </button>
 
-
+                 {optimizedDistance !== null && (
+  <button
+    className="secondary-button"
+    onClick={() => {
+  setRouteName('')
+  setIsSaveRouteModalOpen(true)
+}}
+  >
+    Save Route
+  </button>
+)}
 
               {optimizerError && (
 
@@ -1588,23 +1686,141 @@ const distanceSaved =
 
           </>
 
-        ) : (
+       
+) : activePage === 'Saved Routes' ? (
+  <>
+    <header className="topbar">
+      <div>
+        <p className="eyebrow">ROUTE MANAGEMENT</p>
+        <h1>Saved Routes</h1>
+        <p>View and manage your previously saved routes.</p>
+      </div>
+    </header>
 
-          <header className="topbar">
+    <section className="route-section">
+      <div className="section-heading">
+        <div>
+          <h2>Your saved routes</h2>
+          <p>{savedRoutes.length} routes saved</p>
+        </div>
+      </div>
 
-            <div>
+      {savedRoutes.length === 0 ? (
+        <div className="empty-state">
+          <h3>No saved routes yet</h3>
+          <p>
+            Optimize and save a route to see it here.
+          </p>
 
-              <p className="eyebrow">DELIVERY MANAGEMENT</p>
+          <button
+            className="primary-button"
+            onClick={openRoutePlanner}
+          >
+            Create a route
+          </button>
+        </div>
+      ) : (
+        <div className="location-list">
+          {savedRoutes.map((route) => (
 
-              <h1>{activePage}</h1>
+<div className="location-item" key={route.id}>
+  <div className="location-details">
+    <h3>{route.name}</h3>
 
-              <p>This section will be implemented in a future step.</p>
+    <p>
+      Saved on:{' '}
+      {new Date(route.savedAt).toLocaleDateString()}
+    </p>
 
-            </div>
+    <p>
+      Delivery stops: {route.locations.length}
+    </p>
 
-          </header>
+    <p>
+      Distance:{' '}
+      {route.optimizedDistance !== null
+        ? `${route.optimizedDistance.toFixed(2)} km`
+        : 'Not available'}
+    </p>
 
-        )}
+    <button
+      className="primary-button"
+      onClick={() => loadSavedRoute(route)}
+    >
+      Load Route
+    </button>
+
+<button
+  className="secondary-button"
+  onClick={() => {
+    const confirmed = window.confirm(
+      `Delete "${route.name}"?`
+    )
+
+    if (confirmed) {
+      void deleteSavedRoute(route.id)
+    }
+  }}
+>
+  Delete
+</button>
+
+  </div>
+</div>
+
+            
+          ))}
+        </div>
+      )}
+    </section>
+  </>
+) : (
+  <header className="topbar">
+    <div>
+      <p className="eyebrow">DELIVERY MANAGEMENT</p>
+      <h1>{activePage}</h1>
+      <p>This section will be implemented in a future step.</p>
+    </div>
+  </header>
+)}
+
+{isSaveRouteModalOpen && (
+  <div className="modal-overlay">
+    <div className="save-route-modal">
+      <h2>Save Route</h2>
+      <p>Enter a name for your optimized route.</p>
+
+      <input
+        type="text"
+        placeholder="Route name"
+        value={routeName}
+        onChange={(event) => setRouteName(event.target.value)}
+        autoFocus
+      />
+
+      <div className="modal-actions">
+        <button
+          className="secondary-button"
+          onClick={() => {
+            setIsSaveRouteModalOpen(false)
+            setRouteName('')
+          }}
+        >
+          Cancel
+        </button>
+
+        <button
+          className="primary-button"
+          onClick={() => void saveCurrentRoute()}
+          disabled={!routeName.trim()}
+        >
+          Save
+        </button>
+      </div>
+    </div>
+  </div>
+)}
+
 
       </main>
 
